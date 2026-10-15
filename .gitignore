@@ -1,0 +1,31 @@
+# Generated Unity files are also excluded by UnityProject/.gitignore.
+**/bin/
+**/obj/
+*.log
+*.tmp
+*.apk
+*.aab
+*.keystore
+*.jks
+.env
+.env.*
+.vs/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local installations, device captures, diagnostics and test output.
+/setup/*
+!/setup/*.ps1
+!/setup/*.py
+!/setup/README.md
+!/setup/KingdomChecks/
+!/setup/PrototypeChecks/
+
+# Reference recordings, downloaded third-party artwork and page snapshots stay local.
+/research/*
+!/research/*.md
+!/research/*.py
+
+# Unity's performance-test package creates these transient resource assets.
+/UnityProject/Assets/Resources/PerformanceTestRun*

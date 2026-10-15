@@ -1,0 +1,24 @@
+{
+  "files.exclude": {
+    "**/*.meta": true,
+    "Library": true,
+    "Temp": true,
+    "Obj": true,
+    "Logs": true
+  },
+  "search.exclude": {
+    "Library/**": true,
+    "Temp/**": true,
+    "Builds/**": true
+  },
+  "dotnetAcquisitionExtension.existingDotnetPath": [
+    {
+      "extensionId": "ms-dotnettools.csharp",
+      "path": "C:/Users/dlepe/AppData/Local/Programs/GameDev/dotnet/dotnet.exe"
+    },
+    {
+      "extensionId": "ms-dotnettools.csdevkit",
+      "path": "C:/Users/dlepe/AppData/Local/Programs/GameDev/dotnet/dotnet.exe"
+    }
+  ]
+}
