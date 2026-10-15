@@ -31,7 +31,15 @@ namespace PlagueGame.EditorTools
             initial.food = 321; initial.tier1 = 3;
             KingdomSaveStore.Save(initial);
             var reloaded = KingdomSaveStore.Load();
-            Require(reloaded.food == 321 && reloaded.tier1 == 3 && reloaded.upgrade == null && reloaded.march == null, "Unity save round trip with absent orders");
+            Require(reloaded.food == 321 && reloaded.tier1 == 3 && reloaded.upgrade == null && reloaded.march == null && reloaded.research == null, "Unity save round trip with absent orders");
+            var legacyRules = new KingdomSimulation(initial);
+            legacyRules.StartUpgrade(BuildingKind.Castle); legacyRules.StartTraining(1, 10);
+            var legacyDeadline = initial.upgrade.endsAt; var legacyGold = initial.gold;
+            initial.version = 1; Array.Resize(ref initial.buildings, 6);
+            File.WriteAllText(KingdomSaveStore.SavePath, "{\"format\":1,\"hasUpgrade\":true,\"hasTraining\":true,\"hasMarch\":false,\"hasReport\":false,\"state\":" + JsonUtility.ToJson(initial) + "}");
+            var migrated = KingdomSaveStore.Load();
+            Require(migrated.version == 2 && migrated.buildings.Length == 7 && migrated.food == initial.food && migrated.gold == legacyGold &&
+                migrated.upgrade.endsAt == legacyDeadline && migrated.training.count == 10 && migrated.research == null, "Unity migrates actual v1 envelope without losing queues or resources");
             KingdomSaveStore.Save(KingdomState.NewGame(KingdomSaveStore.UtcNow));
             SessionState.SetBool(Active, true); SessionState.SetBool(Done, false);
             SessionState.SetInt("KingdomPlayCheck.Exit", 0);
@@ -64,6 +72,20 @@ namespace PlagueGame.EditorTools
                 Require(simulation.State.upgrade != null, "upgrade callback");
                 simulation.AdvanceTo(simulation.State.upgrade.endsAt + .01); game.Hud.Render();
                 Require(simulation.Level(BuildingKind.Castle) == 2, "castle completion");
+                Click("Open academy");
+                Require(game.Hud.BlocksWorldInput && GameObject.Find("Academy overlay") != null, "academy opens and blocks world gestures");
+                Click("Research Nectar"); Click("Start research");
+                Require(simulation.State.research != null && simulation.State.research.kind == ResearchKind.Nectar, "research callback");
+                KingdomSaveStore.Save(simulation.State);
+                var researchReload = KingdomSaveStore.Load();
+                Require(researchReload.research != null && researchReload.research.endsAt == simulation.State.research.endsAt && researchReload.training == null, "Unity research queue round trip");
+                simulation.AdvanceTo(simulation.State.research.endsAt); game.Hud.Render();
+                Require(simulation.ResearchLevel(ResearchKind.Nectar) == 1 && simulation.State.research == null && simulation.FoodPerSecond > 1.2, "research completion and actual bonus");
+                KingdomSaveStore.Save(simulation.State);
+                researchReload = KingdomSaveStore.Load();
+                Require(researchReload.research == null && researchReload.researchLevels[0] == 1, "Unity completed research round trip without ghost queue");
+                Click("Close academy");
+                Require(!game.Hud.BlocksWorldInput, "closing academy restores world gestures");
                 Click("Tab Army"); Click("Train soldiers");
                 Require(simulation.State.training != null, "training callback");
                 KingdomSaveStore.Save(simulation.State);
@@ -88,7 +110,7 @@ namespace PlagueGame.EditorTools
                 Require(game.Hud.SelectedBuilding == BuildingKind.Farm, "building selection");
                 Click("Upgrade building");
                 Require(simulation.State.upgrade.building == BuildingKind.Farm && simulation.State.IsValid(), "selected building upgrade and valid state");
-                Debug.Log("PLAGUE_KINGDOM_PLAY_CHECK_OK castle, training, march, battle, report, selection, font, Unity save round trips");
+                Debug.Log("PLAGUE_KINGDOM_PLAY_CHECK_OK academy, research, v1 migration, castle, training, march, battle, report, selection, font, Unity save round trips");
                 Finish(null);
             }
             catch (Exception exception) { Finish(exception); }

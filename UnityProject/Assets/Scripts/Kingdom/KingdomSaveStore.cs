@@ -9,8 +9,8 @@ namespace PlagueGame.Kingdom
         [Serializable]
         private sealed class SaveData
         {
-            public int format = 1;
-            public bool hasUpgrade, hasTraining, hasMarch, hasReport;
+            public int format = 2;
+            public bool hasUpgrade, hasTraining, hasMarch, hasReport, hasResearch;
             public KingdomState state;
         }
         public static string SavePath => Path.Combine(Application.persistentDataPath, "kingdom-v1.json");
@@ -24,7 +24,7 @@ namespace PlagueGame.Kingdom
                 try
                 {
                     var data = JsonUtility.FromJson<SaveData>(File.ReadAllText(path));
-                    var state = data != null && data.format == 1 ? data.state : null;
+                    var state = data != null && (data.format == 1 || data.format == 2) ? data.state : null;
                     // JsonUtility materializes null inline classes as default objects on reload.
                     // Explicit presence flags preserve the distinction between no order and an active order.
                     if (state != null)
@@ -33,8 +33,9 @@ namespace PlagueGame.Kingdom
                         if (!data.hasTraining) state.training = null;
                         if (!data.hasMarch) state.march = null;
                         if (!data.hasReport) state.report = null;
+                        if (!data.hasResearch) state.research = null;
                     }
-                    if (state != null && state.IsValid()) return state;
+                    if (state != null && state.MigrateAndValidate()) return state;
                     Debug.LogWarning("Kingdom save failed validation; checking backup.");
                 }
                 catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is ArgumentException)
@@ -51,7 +52,7 @@ namespace PlagueGame.Kingdom
                 Directory.CreateDirectory(Application.persistentDataPath);
                 var temp = SavePath + ".tmp";
                 var data = new SaveData { state = state, hasUpgrade = state.upgrade != null, hasTraining = state.training != null,
-                    hasMarch = state.march != null, hasReport = state.report != null };
+                    hasMarch = state.march != null, hasReport = state.report != null, hasResearch = state.research != null };
                 File.WriteAllText(temp, JsonUtility.ToJson(data));
                 if (File.Exists(SavePath)) File.Replace(temp, SavePath, SavePath + ".bak");
                 else File.Move(temp, SavePath);

@@ -5,12 +5,12 @@ using UnityEngine.UI;
 
 namespace PlagueGame.Kingdom
 {
-    public sealed class KingdomHud : MonoBehaviour
+    public sealed partial class KingdomHud : MonoBehaviour
     {
         public KingdomTab Tab { get; private set; }
         public BuildingKind SelectedBuilding { get; private set; }
         public int SelectedMonster { get; private set; }
-        public bool BlocksWorldInput => (story != null && story.activeSelf) || (report != null && report.activeSelf);
+        public bool BlocksWorldInput => (story != null && story.activeSelf) || (report != null && report.activeSelf) || (academy != null && academy.activeSelf);
         private int trainingTier = 1, requestedSquad = 10;
         private KingdomSimulation simulation;
         private KingdomWorldView world;
@@ -19,8 +19,8 @@ namespace PlagueGame.Kingdom
         private Action<KingdomTab> changeTab;
         private RectTransform safe;
         private readonly GameObject[] screens = new GameObject[3];
-        private readonly Button[] navigation = new Button[3], buildingButtons = new Button[6], monsterButtons = new Button[3], tierButtons = new Button[2], squadButtons = new Button[3];
-        private readonly Button[] worldLabels = new Button[9];
+        private readonly Button[] navigation = new Button[3], buildingButtons = new Button[KingdomState.BuildingCount], monsterButtons = new Button[3], tierButtons = new Button[2], squadButtons = new Button[3];
+        private readonly Button[] worldLabels = new Button[KingdomState.BuildingCount + 3];
         private Text food, wood, gold, title, statistics, objective;
         private Text buildingTitle, buildingDescription, buildingInfo, buildHint, armyDescription, armyInfo, armyCost, armyHint;
         private Text monsterTitle, monsterDescription, monsterInfo, toastText, reportText, reportTitle;
@@ -48,7 +48,7 @@ namespace PlagueGame.Kingdom
             var heading = Rect("Heading", safe); Top(heading, 15, 85);
             Label(heading, "ЯНТАРНЫЙ ПРЕСТОЛ", 21, Muted, 0, 0, -200, 30);
             title = Label(heading, "Улей среди корней", 43, Ink, 0, 30, -120, 56);
-            var version = Label(heading, "0.3 · УЛЕЙ", 20, Muted, 0, 0, 0, 35, TextAnchor.MiddleRight);
+            var version = Label(heading, "0.4 · ЗНАНИЯ", 20, Muted, 0, 0, 0, 35, TextAnchor.MiddleRight);
             version.rectTransform.anchorMin = new Vector2(.72f, 1);
             var resources = Rect("Resources", safe); Top(resources, 112, 91);
             food = Resource(resources, 0, "НЕКТАР", "#DFE6BF"); wood = Resource(resources, 1, "ВОСК", "#EFE1BD"); gold = Resource(resources, 2, "ЯНТАРЬ", "#EDD39B");
@@ -60,12 +60,12 @@ namespace PlagueGame.Kingdom
             objective = Label(goal, "", 27, Ink, 20, 34, -40, 41);
 
             var worldLayer = Rect("World labels", safe); Stretch(worldLayer);
-            for (var i = 0; i < 9; i++)
+            for (var i = 0; i < worldLabels.Length; i++)
             {
                 var index = i;
                 var button = Button(worldLayer, "World target " + i, "#F6EDDA", Ink, 21);
                 var rect = button.GetComponent<RectTransform>(); rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f); rect.sizeDelta = new Vector2(i == 0 ? 220 : 208, 65);
-                button.onClick.AddListener(() => { if (index < 6) SelectBuilding((BuildingKind)index); else SelectMonster(index - 6); });
+                button.onClick.AddListener(() => { if (index < KingdomState.BuildingCount) SelectBuilding((BuildingKind)index); else SelectMonster(index - KingdomState.BuildingCount); });
                 worldLabels[i] = button;
             }
 
@@ -79,12 +79,15 @@ namespace PlagueGame.Kingdom
             upgrade.onClick.AddListener(() => perform(() => simulation.StartUpgrade(SelectedBuilding)));
             buildHint = Label(city, "", 23, Muted, 24, 365, -48, 40);
             var buildingGrid = Rect("Building selection", city); Top(buildingGrid, 418, 157, 18, 18);
-            for (var i = 0; i < 6; i++)
+            for (var i = 0; i < buildingButtons.Length; i++)
             {
                 var kind = (BuildingKind)i; var button = Button(buildingGrid, "Select " + kind, "#E9E2CB", Ink, 23);
-                Grid(button.GetComponent<RectTransform>(), i % 3, i / 3, 3, 2);
+                Grid(button.GetComponent<RectTransform>(), i % 4, i / 4, 4, 2);
                 button.onClick.AddListener(() => SelectBuilding(kind)); buildingButtons[i] = button;
             }
+            var knowledge = Button(buildingGrid, "Open academy", "#386751", Color.white, 23);
+            Grid(knowledge.GetComponent<RectTransform>(), 3, 1, 4, 2);
+            SetText(knowledge, "Исследования"); knowledge.onClick.AddListener(ShowAcademy);
 
             var army = Rect("Army actions", dock); Stretch(army); screens[1] = army.gameObject;
             Label(army, "Стража Жала", 39, Ink, 24, 18, -48, 56);
@@ -136,7 +139,7 @@ namespace PlagueGame.Kingdom
             }
             var toastRect = Panel("Notification", safe, "#283E32"); Bottom(toastRect, 743, 67); toast = toastRect.gameObject;
             toastText = Label(toastRect, "", 25, Color.white, 18, 0, -36, 67, TextAnchor.MiddleCenter); toast.SetActive(false);
-            BuildReport(); BuildStory();
+            BuildReport(); BuildStory(); BuildAcademy();
             var caption = Rect("Hero caption", worldLayer); Top(caption, 395, 145); heroCaption = caption.gameObject;
             Label(caption, "РУТА", 48, Hex("#F2E4BE"), 14, 8, -28, 65);
             Label(caption, "Проводница · командир стражи", 25, Hex("#DFCC9E"), 14, 78, -28, 42);
@@ -164,10 +167,10 @@ namespace PlagueGame.Kingdom
             heroCaption?.SetActive(Tab == KingdomTab.Army);
             if (observedStoryStage >= 0 && observedStoryStage != simulation.StoryStage) ShowMessage("Новая запись: «" + simulation.StoryTitle + "». Открой историю.");
             observedStoryStage = simulation.StoryStage;
-            RenderBuilding(); RenderArmy(); RenderMap();
-            for (var i = 0; i < 6; i++)
+            RenderBuilding(); RenderArmy(); RenderMap(); RenderAcademy();
+            for (var i = 0; i < buildingButtons.Length; i++)
             {
-                var name = new[] { "Цитадель", "Нектарный сад", "Мастерская", "Хранилище", "Казармы Жала", "Лагерь Крыльев" }[i];
+                var name = new[] { "Цитадель", "Нектарный сад", "Мастерская", "Хранилище", "Казармы Жала", "Лагерь Крыльев", "Академия" }[i];
                 SetText(buildingButtons[i], name + " · " + simulation.Level((BuildingKind)i)); Tint(buildingButtons[i], i == (int)SelectedBuilding);
                 SetText(worldLabels[i], name + "\nУровень " + simulation.Level((BuildingKind)i));
             }
@@ -175,7 +178,7 @@ namespace PlagueGame.Kingdom
             {
                 var name = i == 0 ? "Долгоносик" : i == 1 ? "Шипокрыл" : "Паук";
                 SetText(monsterButtons[i], name + "\nУровень " + (i + 1)); Tint(monsterButtons[i], i == SelectedMonster);
-                SetText(worldLabels[i + 6], name + " · ур. " + (i + 1) + "\n" + (state.monsterReadyAt[i] > state.lastUtc ? "Вернётся: " + Left(state.monsterReadyAt[i]) : "Выбрать цель"));
+                SetText(worldLabels[i + KingdomState.BuildingCount], name + " · ур. " + (i + 1) + "\n" + (state.monsterReadyAt[i] > state.lastUtc ? "Вернётся: " + Left(state.monsterReadyAt[i]) : "Выбрать цель"));
             }
             if (toast != null && Time.unscaledTime > toastUntil) toast.SetActive(false);
             if (report != null && report.activeSelf) UpdateReport();
@@ -196,6 +199,7 @@ namespace PlagueGame.Kingdom
             upgrade.interactable = block.Length == 0;
             buildHint.text = block.Length > 0 && !ownOrder ? block : "Ресурсы производятся автоматически, пока есть место";
             if (kind == BuildingKind.Barracks && block.Length == 0) buildHint.text = "Обучение солдат находится в разделе «Армия»";
+            if (kind == BuildingKind.Academy) buildHint.text = "Кнопка «Исследования» внизу откроет технологии улья";
         }
 
         private void RenderArmy()
@@ -210,7 +214,7 @@ namespace PlagueGame.Kingdom
             train.interactable = block.Length == 0;
             SetText(train, order == null ? "Обучить 10 солдат · " + (trainingTier == 1 ? "I" : "II") + " ступень" : "Обучение · " + Left(order.endsAt));
             armyCost.text = simulation.TrainingCost(trainingTier, 10).Text;
-            armyHint.text = block.Length > 0 && order == null ? block : "Лагерь увеличивает отряд. Казармы ускоряют обучение.\nВо время похода солдаты недоступны в улье.";
+            armyHint.text = block.Length > 0 && order == null ? block : "Академия: атака войск +" + KingdomSimulation.ResearchPercent(ResearchKind.Attack, simulation.ResearchLevel(ResearchKind.Attack)) + "%. Бонус для новых походов.\nЛагерь увеличивает отряд. Казармы ускоряют обучение.";
         }
 
         private void RenderMap()
@@ -248,8 +252,9 @@ namespace PlagueGame.Kingdom
             var view = Camera.main;
             for (var i = 0; i < worldLabels.Length; i++)
             {
-                var relevant = i < 6 ? Tab == KingdomTab.Settlement : Tab == KingdomTab.Map;
-                var screen = view.WorldToScreenPoint(world.LabelPosition(i < 6 ? i : i - 6, i >= 6));
+                var isBuilding = i < KingdomState.BuildingCount;
+                var relevant = isBuilding ? Tab == KingdomTab.Settlement : Tab == KingdomTab.Map;
+                var screen = view.WorldToScreenPoint(world.LabelPosition(isBuilding ? i : i - KingdomState.BuildingCount, !isBuilding));
                 worldLabels[i].gameObject.SetActive(relevant && view.pixelRect.Contains(screen) && screen.z > 0);
                 if (!relevant) continue;
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(safe, screen, null, out var point);

@@ -2,7 +2,8 @@ using System;
 
 namespace PlagueGame.Kingdom
 {
-    public enum BuildingKind { Castle, Farm, Lumbermill, Warehouse, Barracks, Camp }
+    public enum BuildingKind { Castle, Farm, Lumbermill, Warehouse, Barracks, Camp, Academy }
+    public enum ResearchKind { Nectar, Wax, Construction, Attack }
     public enum MarchPhase { Outbound, Returning }
 
     [Serializable]
@@ -28,9 +29,17 @@ namespace PlagueGame.Kingdom
     }
 
     [Serializable]
+    public sealed class ResearchOrder
+    {
+        public ResearchKind kind;
+        public int targetLevel;
+        public double startedAt, endsAt;
+    }
+
+    [Serializable]
     public sealed class MarchOrder
     {
-        public int id, monster, tier1, tier2, survivors1, survivors2;
+        public int id, monster, tier1, tier2, survivors1, survivors2, attackResearchLevel;
         public MarchPhase phase;
         public double startedAt, arrivesAt, homeAt;
         public bool won;
@@ -47,11 +56,14 @@ namespace PlagueGame.Kingdom
     [Serializable]
     public sealed class KingdomState
     {
-        public int version = 1;
+        public const int BuildingCount = 7, ResearchCount = 4, CurrentVersion = 2;
+        public int version = CurrentVersion;
         public double lastUtc, food, wood, gold;
         public BuildingState[] buildings;
         public UpgradeOrder upgrade;
         public TrainingOrder training;
+        public ResearchOrder research;
+        public int[] researchLevels = new int[ResearchCount];
         public MarchOrder march;
         public BattleReport report;
         public int tier1, tier2, heroExperience, nextMarchId = 1;
@@ -60,26 +72,46 @@ namespace PlagueGame.Kingdom
 
         public static KingdomState NewGame(double now)
         {
-            var state = new KingdomState { lastUtc = now, food = 450, wood = 450, gold = 240, buildings = new BuildingState[6] };
+            var state = new KingdomState { lastUtc = now, food = 450, wood = 450, gold = 240, buildings = new BuildingState[BuildingCount] };
             for (var i = 0; i < state.buildings.Length; i++) state.buildings[i] = new BuildingState { kind = (BuildingKind)i };
             return state;
         }
 
+        // Append identities without changing the six buildings or queues in a 0.3 save.
+        public bool MigrateAndValidate()
+        {
+            if (version == 1)
+            {
+                if (buildings == null || buildings.Length != 6) return false;
+                Array.Resize(ref buildings, BuildingCount);
+                buildings[(int)BuildingKind.Academy] = new BuildingState { kind = BuildingKind.Academy };
+                researchLevels = new int[ResearchCount];
+                research = null;
+                version = CurrentVersion;
+            }
+            return IsValid();
+        }
+
         public bool IsValid()
         {
-            if (version != 1 || !TimeValid(lastUtc) || lastUtc < 1 || !ResourceValid(food) || !ResourceValid(wood) || !ResourceValid(gold)) return false;
-            if (buildings == null || buildings.Length != 6 || monsterReadyAt == null || monsterReadyAt.Length != 3) return false;
+            if (version != CurrentVersion || !TimeValid(lastUtc) || lastUtc < 1 || !ResourceValid(food) || !ResourceValid(wood) || !ResourceValid(gold)) return false;
+            if (buildings == null || buildings.Length != BuildingCount || monsterReadyAt == null || monsterReadyAt.Length != 3) return false;
             for (var i = 0; i < buildings.Length; i++)
                 if (buildings[i] == null || buildings[i].kind != (BuildingKind)i || buildings[i].level < 1 || buildings[i].level > 5) return false;
+            if (researchLevels == null || researchLevels.Length != ResearchCount) return false;
+            foreach (var level in researchLevels) if (level < 0 || level > buildings[(int)BuildingKind.Academy].level || (level > 0 && buildings[0].level < 2)) return false;
+            if (research != null && ((int)research.kind < 0 || (int)research.kind >= ResearchCount || buildings[0].level < 2 ||
+                research.targetLevel != researchLevels[(int)research.kind] + 1 || research.targetLevel > buildings[(int)BuildingKind.Academy].level ||
+                !OrderValid(research.startedAt, research.endsAt))) return false;
             foreach (var time in monsterReadyAt) if (!TimeValid(time)) return false;
             if (tier1 < 0 || tier2 < 0 || tier1 + (long)tier2 > 1000000 || heroExperience < 0 || heroExperience > 100000000 || nextMarchId < 1) return false;
             if (upgradesFinished < 0 || trainedTotal < 0 || monstersDefeated < 0 || marchesReturned < 0) return false;
-            if (upgrade != null && ((int)upgrade.building < 0 || (int)upgrade.building >= 6 ||
+            if (upgrade != null && ((int)upgrade.building < 0 || (int)upgrade.building >= BuildingCount ||
                 upgrade.targetLevel != buildings[(int)upgrade.building].level + 1 || upgrade.targetLevel > 5 || !OrderValid(upgrade.startedAt, upgrade.endsAt))) return false;
             if (training != null && ((training.tier != 1 && training.tier != 2) || training.count < 1 || training.count > 200 || !OrderValid(training.startedAt, training.endsAt))) return false;
             if (march != null)
             {
-                if (march.id < 1 || march.id >= nextMarchId || march.monster < 0 || march.monster > 2 ||
+                if (march.id < 1 || march.id >= nextMarchId || march.monster < 0 || march.monster > 2 || march.attackResearchLevel < 0 || march.attackResearchLevel > 5 ||
                     march.tier1 < 0 || march.tier2 < 0 || march.tier1 + (long)march.tier2 < 1 || march.tier1 + (long)march.tier2 > 1000 ||
                     march.survivors1 < 0 || march.survivors1 > march.tier1 || march.survivors2 < 0 || march.survivors2 > march.tier2 ||
                     (march.phase != MarchPhase.Outbound && march.phase != MarchPhase.Returning) ||
@@ -151,9 +183,13 @@ namespace PlagueGame.Kingdom
 
         public int Level(BuildingKind kind) => State.buildings[(int)kind].level;
         public int StorageCapacity => 600 + Level(BuildingKind.Warehouse) * 400;
-        public double FoodPerSecond => Level(BuildingKind.Farm) * 1.2;
-        public double WoodPerSecond => Level(BuildingKind.Lumbermill) * .9;
+        public double FoodPerSecond => Level(BuildingKind.Farm) * 1.2 * (1 + ResearchLevel(ResearchKind.Nectar) * .15);
+        public double WoodPerSecond => Level(BuildingKind.Lumbermill) * .9 * (1 + ResearchLevel(ResearchKind.Wax) * .15);
         public double GoldPerSecond => Level(BuildingKind.Castle) * .35;
+        public int ResearchLevel(ResearchKind kind) => State.researchLevels[(int)kind];
+        public double ConstructionSpeedBonus => ResearchLevel(ResearchKind.Construction) * .10;
+        public double AttackBonus => ResearchLevel(ResearchKind.Attack) * .08;
+        public int ResearchTotal { get { var sum = 0; foreach (var level in State.researchLevels) sum += level; return sum; } }
         public int AvailableTroops => State.tier1 + State.tier2;
         public int ArmyCapacity => 15 + Level(BuildingKind.Camp) * 5 + HeroLevel * 2;
         public int UnlockedTier => Level(BuildingKind.Camp) >= 3 ? 2 : 1;
@@ -165,7 +201,7 @@ namespace PlagueGame.Kingdom
         {
             get
             {
-                var power = HeroLevel * 150 + State.tier1 * 25 + State.tier2 * 45;
+                var power = HeroLevel * 150 + State.tier1 * 25 + State.tier2 * 45 + ResearchTotal * 100;
                 foreach (var building in State.buildings) power += building.level * 80;
                 if (State.march != null) power += (State.march.phase == MarchPhase.Outbound ? State.march.tier1 : State.march.survivors1) * 25 +
                     (State.march.phase == MarchPhase.Outbound ? State.march.tier2 : State.march.survivors2) * 45;
@@ -175,7 +211,7 @@ namespace PlagueGame.Kingdom
 
         public static string BuildingName(BuildingKind kind)
         {
-            return new[] { "Цитадель улья", "Нектарный сад", "Восковая мастерская", "Сотовое хранилище", "Казармы Жала", "Лагерь Крыльев" }[(int)kind];
+            return new[] { "Цитадель улья", "Нектарный сад", "Восковая мастерская", "Сотовое хранилище", "Казармы Жала", "Лагерь Крыльев", "Академия Цветения" }[(int)kind];
         }
 
         public string BuildingBenefit(BuildingKind kind)
@@ -187,6 +223,7 @@ namespace PlagueGame.Kingdom
                 case BuildingKind.Lumbermill: return "Производство воска: " + (WoodPerSecond * 60).ToString("0") + "/мин. Воск нужен для построек и армии.";
                 case BuildingKind.Warehouse: return "Вместимость: " + StorageCapacity + " каждого ресурса. При заполнении производство останавливается.";
                 case BuildingKind.Barracks: return "Обучает войска. Чем выше уровень, тем быстрее готова партия солдат.";
+                case BuildingKind.Academy: return "Исследования добычи, строительства и атаки. Уровень академии задаёт предел технологий. Открывается с цитаделью 2 уровня.";
                 default: return "В походе до " + ArmyCapacity + " солдат. На 3 уровне открывает войска II ступени.";
             }
         }
@@ -197,7 +234,7 @@ namespace PlagueGame.Kingdom
             var initial = kind == BuildingKind.Castle ? new ResourceCost(80, 120, 60) : new ResourceCost(40, 90, 25);
             return new ResourceCost((int)Math.Ceiling(initial.food * factor), (int)Math.Ceiling(initial.wood * factor), (int)Math.Ceiling(initial.gold * factor));
         }
-        public double UpgradeDuration(BuildingKind kind) => 6 + Level(kind) * 5 + (kind == BuildingKind.Castle ? 5 : 0);
+        public double UpgradeDuration(BuildingKind kind) => (6 + Level(kind) * 5 + (kind == BuildingKind.Castle ? 5 : 0)) / (1 + ConstructionSpeedBonus);
         public bool CanAfford(ResourceCost cost) => State.food >= cost.food && State.wood >= cost.wood && State.gold >= cost.gold;
         public string UpgradeBlock(BuildingKind kind)
         {
@@ -211,7 +248,7 @@ namespace PlagueGame.Kingdom
 
         public KingdomAction StartUpgrade(BuildingKind kind)
         {
-            if ((int)kind < 0 || (int)kind > 5) return Fail("Неизвестная постройка");
+            if ((int)kind < 0 || (int)kind >= KingdomState.BuildingCount) return Fail("Неизвестная постройка");
             var block = UpgradeBlock(kind);
             if (block.Length > 0) return Fail(block);
             Spend(UpgradeCost(kind));
@@ -239,6 +276,45 @@ namespace PlagueGame.Kingdom
             return Ok("Обучение началось: " + count + " солдат " + (tier == 1 ? "I" : "II") + " ступени");
         }
 
+        public static string ResearchName(ResearchKind kind) => new[] { "Цветочная разведка", "Чистый воск", "Сотовое зодчество", "Закалённое жало" }[(int)kind];
+        public static int ResearchPercent(ResearchKind kind, int level) => level * (kind == ResearchKind.Construction ? 10 : kind == ResearchKind.Attack ? 8 : 15);
+        public static string ResearchEffect(ResearchKind kind, int level)
+        {
+            var target = kind == ResearchKind.Nectar ? "Добыча нектара" : kind == ResearchKind.Wax ? "Добыча воска" : kind == ResearchKind.Construction ? "Скорость строительства" : "Атака войск";
+            return target + " +" + ResearchPercent(kind, level) + "%";
+        }
+        public static string ResearchDescription(ResearchKind kind) => new[] {
+            "Разведчицы находят цветы с самым сладким нектаром. Бонус действует и во время отсутствия.",
+            "Мастера очищают воск от Чёрной пыльцы. Мастерская производит больше воска.",
+            "Чертежи древних сот ускоряют новые улучшения зданий. Уже начатое строительство сохраняет свой срок.",
+            "Янтарная закалка усиливает атаку солдат обеих ступеней. Бонус получает каждый новый поход."
+        }[(int)kind];
+        public ResourceCost ResearchCost(ResearchKind kind)
+        {
+            var factor = Math.Pow(1.7, ResearchLevel(kind));
+            return new ResourceCost((int)Math.Ceiling((kind == ResearchKind.Attack ? 70 : 45) * factor),
+                (int)Math.Ceiling((kind == ResearchKind.Construction ? 75 : 55) * factor), (int)Math.Ceiling(30 * factor));
+        }
+        public double ResearchDuration(ResearchKind kind) => 18 + (ResearchLevel(kind) + 1) * 8;
+        public string ResearchBlock(ResearchKind kind)
+        {
+            if ((int)kind < 0 || (int)kind >= KingdomState.ResearchCount) return "Неизвестное исследование";
+            if (Level(BuildingKind.Castle) < 2) return "Улучшите цитадель до 2 уровня, чтобы открыть исследования";
+            if (ResearchLevel(kind) >= 5) return "Технология полностью изучена";
+            if (State.research != null) return "Учёные заняты: " + ResearchName(State.research.kind);
+            if (ResearchLevel(kind) >= Level(BuildingKind.Academy)) return "Нужна академия " + (ResearchLevel(kind) + 1) + " уровня";
+            return CanAfford(ResearchCost(kind)) ? "" : "Недостаточно ресурсов для исследования";
+        }
+        public KingdomAction StartResearch(ResearchKind kind)
+        {
+            var block = ResearchBlock(kind);
+            if (block.Length > 0) return Fail(block);
+            Spend(ResearchCost(kind));
+            State.research = new ResearchOrder { kind = kind, targetLevel = ResearchLevel(kind) + 1,
+                startedAt = State.lastUtc, endsAt = State.lastUtc + ResearchDuration(kind) };
+            return Ok("Исследование началось: " + ResearchName(kind));
+        }
+
         public int SquadSize(int requested) => Math.Max(0, Math.Min(requested, Math.Min(AvailableTroops, ArmyCapacity)));
         public string MarchBlock(int monster, int requested)
         {
@@ -252,7 +328,7 @@ namespace PlagueGame.Kingdom
         {
             var count = SquadSize(requested);
             var tier2 = Math.Min(count, State.tier2);
-            return ResolveBattle(count - tier2, tier2, HeroLevel, Monsters[monster]);
+            return ResolveBattle(count - tier2, tier2, HeroLevel, Monsters[monster], ResearchLevel(ResearchKind.Attack));
         }
 
         public KingdomAction SendMarch(int monster, int requested)
@@ -263,21 +339,21 @@ namespace PlagueGame.Kingdom
             var tier2 = Math.Min(count, State.tier2);
             var march = new MarchOrder { id = State.nextMarchId++, monster = monster, tier1 = count - tier2, tier2 = tier2,
                 startedAt = State.lastUtc, arrivesAt = State.lastUtc + Monsters[monster].travelSeconds,
-                homeAt = State.lastUtc + Monsters[monster].travelSeconds * 2, phase = MarchPhase.Outbound };
+                homeAt = State.lastUtc + Monsters[monster].travelSeconds * 2, phase = MarchPhase.Outbound, attackResearchLevel = ResearchLevel(ResearchKind.Attack) };
             State.tier1 -= march.tier1;
             State.tier2 -= march.tier2;
             State.march = march;
             return Ok("Отряд отправлен: " + count + " солдат");
         }
 
-        public static BattleOutcome ResolveBattle(int tier1, int tier2, int heroLevel, MonsterDefinition monster)
+        public static BattleOutcome ResolveBattle(int tier1, int tier2, int heroLevel, MonsterDefinition monster, int attackResearchLevel = 0)
         {
             var result = new BattleOutcome();
             if (tier1 + tier2 <= 0) return result;
             var maxHealth = tier1 * 30d + tier2 * 50d;
             var health = maxHealth;
             var monsterHealth = (double)monster.health;
-            var attack = (tier1 * Math.Max(1, 7 - monster.defense) + tier2 * Math.Max(1, 12 - monster.defense)) * (1 + (heroLevel - 1) * .06);
+            var attack = (tier1 * Math.Max(1, 7 - monster.defense) + tier2 * Math.Max(1, 12 - monster.defense)) * (1 + (heroLevel - 1) * .06) * (1 + attackResearchLevel * .08);
             var defense = (tier1 + tier2 * 2d) / (tier1 + tier2);
             for (var round = 0; round < 100 && health > 0 && monsterHealth > 0; round++)
             {
@@ -302,6 +378,7 @@ namespace PlagueGame.Kingdom
                 var next = now;
                 if (State.upgrade != null) next = Math.Min(next, Math.Max(State.lastUtc, State.upgrade.endsAt));
                 if (State.training != null) next = Math.Min(next, Math.Max(State.lastUtc, State.training.endsAt));
+                if (State.research != null) next = Math.Min(next, Math.Max(State.lastUtc, State.research.endsAt));
                 if (State.march != null) next = Math.Min(next, Math.Max(State.lastUtc,
                     State.march.phase == MarchPhase.Outbound ? State.march.arrivesAt : State.march.homeAt));
                 var incomeSeconds = Math.Max(0, next - Math.Max(productionStart, State.lastUtc));
@@ -329,12 +406,19 @@ namespace PlagueGame.Kingdom
                 State.training = null;
                 Notify("Обучение завершено: +" + order.count + " солдат");
             }
+            if (State.research != null && State.research.endsAt <= State.lastUtc)
+            {
+                var order = State.research;
+                State.researchLevels[(int)order.kind] = order.targetLevel;
+                State.research = null;
+                Notify("Изучено: " + ResearchName(order.kind) + " · ур. " + order.targetLevel);
+            }
             var march = State.march;
             if (march == null) return;
             if (march.phase == MarchPhase.Outbound && march.arrivesAt <= State.lastUtc)
             {
                 var monster = Monsters[march.monster];
-                var outcome = ResolveBattle(march.tier1, march.tier2, HeroLevel, monster);
+                var outcome = ResolveBattle(march.tier1, march.tier2, HeroLevel, monster, march.attackResearchLevel);
                 march.won = outcome.won;
                 march.survivors1 = outcome.survivors1;
                 march.survivors2 = outcome.survivors2;
@@ -393,6 +477,7 @@ namespace PlagueGame.Kingdom
                 if (Level(BuildingKind.Castle) < 2) return "Улучшите цитадель до 2 уровня";
                 if (State.trainedTotal < 10) return "Обучите 10 солдат в разделе «Армия»";
                 if (State.heroExperience < 20) return State.march != null ? "Дождитесь возвращения отряда Руты" : "Расчистите путь: победите долгоносика";
+                if (ResearchTotal == 0) return State.research != null ? "Дождитесь открытия в Академии Цветения" : "Академия: изучите первую технологию";
                 if (Level(BuildingKind.Castle) < 3) return "Поднимите цитадель до 3 уровня";
                 if (Level(BuildingKind.Camp) < 3) return "Лагерь 3 уровня откроет II ступень войск";
                 if (State.monstersDefeated < 3) return "Усильте армию и победите 3 монстров: " + State.monstersDefeated + "/3";

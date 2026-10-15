@@ -19,12 +19,13 @@ namespace PlagueGame.Kingdom
                 Banner(terrain,new Vector3(s*1.9f,0,-8.7f),Green); Shape("Gate pier",PrimitiveType.Cylinder,new Vector3(s*2,.65f,-8.7f),new Vector3(.85f,1.3f,.85f),Wax,terrain); Lantern(terrain,new Vector3(s*1.9f,1.6f,-8.7f));
             }
             Batch(terrain);
-            for(var i=0;i<6;i++)
+            Path(new Vector3(5.1f,0,1.5f),sites[(int)BuildingKind.Academy],.9f,village);
+            for(var i=0;i<buildings.Length;i++)
             {
                 var root=Root(KingdomSimulation.BuildingName((BuildingKind)i),village,sites[i]); buildings[i]=root;
                 var hit=root.gameObject.AddComponent<BoxCollider>(); hit.center=Vector3.up*1.6f; hit.size=new Vector3(i==0?5.6f:3.8f,3.5f,3.6f); root.gameObject.AddComponent<KingdomTarget>().index=i;
                 var model=Root("Base architecture",root,Vector3.zero); Shape("Hexagon foundation",PrimitiveType.Cylinder,Vector3.up*.15f,new Vector3(i==0?6.7f:4.8f,.3f,i==0?5.9f:4.4f),"#C1AD76",model);
-                if(i==0) Castle(model); else if(i==1) Garden(model); else if(i==2) Workshop(model); else if(i==3) Warehouse(model); else if(i==4) Barracks(model); else Camp(model); Batch(model);
+                if(i==0) Castle(model); else if(i==1) Garden(model); else if(i==2) Workshop(model); else if(i==3) Warehouse(model); else if(i==4) Barracks(model); else if(i==5) Camp(model); else Academy(model); Batch(model);
                 for(var j=0;j<2;j++)
                 {
                     var addition=Root("Growth tier "+(j+2),root,Vector3.zero); growth[i,j]=addition;
@@ -99,6 +100,20 @@ namespace PlagueGame.Kingdom
             for(var s=-1;s<=1;s+=2) Beam(root,new Vector3(s*1.2f,.2f,.7f),new Vector3(s*1.2f,2.3f,.7f),.12f,Bark);
             Leaf(root,new Vector3(0,2.1f,.3f),new Vector3(2,.4f,2.4f),Green,0); Box("Training platform",new Vector3(0,.4f,0),new Vector3(2.7f,.18f,2.2f),Bark,root);
             for(var i=0;i<2;i++) { Beam(root,new Vector3(-.7f+i*1.4f,.2f,-1.4f),new Vector3(-.7f+i*1.4f,1.8f,-1.4f),.06f,Bark); Shape("Training target",PrimitiveType.Sphere,new Vector3(-.7f+i*1.4f,1.6f,-1.4f),new Vector3(.6f,.6f,.25f),Amber,root); }
+        }
+        private void Academy(Transform root)
+        {
+            WaxHouse(root,"#487B78");
+            Shape("Observatory tower",PrimitiveType.Cylinder,new Vector3(.7f,2.7f,.7f),new Vector3(1.4f,2.2f,1.4f),Wax,root);
+            Roof(root,new Vector3(.7f,4,.7f),new Vector3(1.3f,1.1f,1.3f),"#487B78",6);
+            Shape("Amber star",PrimitiveType.Sphere,new Vector3(.7f,4.7f,.7f),new Vector3(.48f,.7f,.48f),Amber,root);
+            Window(root,new Vector3(.7f,3.1f,-.03f),.72f);
+            Box("Reading desk",new Vector3(-.45f,.65f,-1.65f),new Vector3(1.7f,.2f,.8f),Bark,root);
+            var book=Box("Open wax manuscript",new Vector3(-.45f,.83f,-1.65f),new Vector3(1.15f,.08f,.7f),Wax,root);
+            book.localRotation=Quaternion.Euler(12,0,0);
+            Beam(root,new Vector3(-.45f,.89f,-1.97f),new Vector3(-.45f,1.02f,-1.34f),.025f,Amber);
+            for(var i=0;i<3;i++) Box("Wax tablet",new Vector3(-1.7f,.42f+i*.15f,.3f),new Vector3(.6f,.12f,.85f),i==1?Amber:Wax,root);
+            Lantern(root,new Vector3(1.65f,1,-1.35f)); Banner(root,new Vector3(-1.5f,0,-.8f),"#487B78");
         }
     }
 }

@@ -1,6 +1,6 @@
 # PlagueGame — рабочий Android-проект
 
-Техническое рабочее название. Художественный стиль и финальное название ещё не выбраны.
+Техническое имя проекта. Текущий мир — пчелиные королевства «Янтарный престол»; художественные модели представляют первый проход.
 
 - Редактор: Unity 6.3 LTS, 6000.3.26f1.
 - Графика: Universal Render Pipeline.
@@ -10,11 +10,13 @@
 
 Сцена `Assets/Scenes/EnvironmentCheck.unity` предназначена для проверки редактора и Android-сборки. Её простые фигуры не определяют будущий стиль игры.
 
-Игровая сцена: `Assets/Scenes/ClinicPrototype.unity`. Есть лечение пациентов, очередь, сбор трав, изготовление лекарств, расширение палаты, улучшение врача и локальное сохранение. Отображение мира собрано из временных моделей; стиль ещё не выбран.
+Основная игровая сцена: `Assets/Scenes/KingdomPrototype.unity`, версия 0.4.0. Семь построек, производство, улучшения, обучение, Рута, походы и монстры. Академия Цветения добавляет четыре технологии с отдельной очередью, офлайн-завершением и переносом сохранений 0.3. Подробности — в `../academy-prototype-notes.md`.
 
 Вертикальная ориентация закреплена в настройках Android и компоненте PortraitLock; горизонтальные положения отключены. UI учитывает безопасную область экрана.
 
-Для открытия игровой сцены используйте `PlagueGame → Prototype → Open clinic`, для сборки — `Build Android clinic`. Файл: `Builds/Android/PlagueGame-Clinic.apk`, версия 0.1.0.
+Для открытия основной сцены используйте `PlagueGame → Prototype → Open kingdom`, для сборки — `Build Android kingdom` или `../setup/Build-Android.ps1`. APK: `Builds/Android/PlagueGame-Kingdom.apk`. Готовые обновления доступны в [GitHub Releases](https://github.com/Sanarakal/beewar/releases).
+
+Предыдущая сцена лечебницы сохранена в `Assets/Scenes/ClinicPrototype.unity`. Для неё доступны `Open clinic` и `Build Android clinic`.
 
 Меню редактора: `PlagueGame → Setup → Configure project` и `Build Android environment check`.
 

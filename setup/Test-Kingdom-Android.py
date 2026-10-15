@@ -31,8 +31,8 @@ def check(condition, label):
 def state():
     data = json.loads(adb('shell', 'cat', '/sdcard/Android/data/' + PACKAGE + '/files/kingdom-v1.json'))
     result = data['state']
-    for name in ('upgrade', 'training', 'march', 'report'):
-        if not data['has' + name[0].upper() + name[1:]]:
+    for name in ('upgrade', 'training', 'march', 'report', 'research'):
+        if not data.get('has' + name[0].upper() + name[1:], False):
             result[name] = None
     return result
 
@@ -140,12 +140,57 @@ try:
         check(screenshot('portrait-rotation') == (1080, 2400), 'portrait lock under requested landscape rotation')
     finally:
         adb('shell', 'wm', 'user-rotation', *(('free',) if old_rotation == 'free' else ('lock', old_rotation.split()[-1])))
+
+    # Academy: exercise touch, queue persistence and all four technology effects.
+    tap(180, 2340)
+    tap(900, 2230)
+    screenshot('academy-ready')
+    tap(540, 744)
+    before_research = state()
+    tap(540, 1685)
+    studying = wait_for(lambda s: s['research'] is not None, 'touch starts research', 8)
+    research_end = studying['research']['endsAt']
+    check(studying['research']['kind'] == 0 and studying['researchLevels'][0] == 0, 'nectar bonus waits for completion')
+    check(studying['gold'] < before_research['gold'] - 20, 'research consumes amber')
+    tap(540, 1685)
+    check(state()['research']['endsAt'] == research_end, 'disabled research button does not double queue')
+    screenshot('academy-research')
+    restart()
+    researched = wait_for(lambda s: s['research'] is None and s['researchLevels'][0] == 1, 'research survives force-stop and completes once')
+    check(researched['version'] == 2 and len(researched['buildings']) == 7, 'new save includes academy and technology schema')
+    tap(900, 2230)
+    screenshot('academy-level-gate')
+    tap(540, 1685)
+    check(state()['research'] is None and state()['researchLevels'][0] == 1, 'academy level gates the second research level')
+    # Wax -> construction -> attack. Construction and training overlap the final research.
+    for kind, y in ((1, 866), (2, 988), (3, 1110)):
+        tap(540, y)
+        tap(540, 1685)
+        wait_for(lambda s: s['research'] is not None and s['research']['kind'] == kind, 'touch starts technology ' + str(kind), 8)
+        if kind == 3:
+            tap(540, 1879)
+            tap(540, 1983)  # Academy upgrade, already selected when opening research.
+            tap(540, 2340)
+            tap(540, 2065)
+            parallel = state()
+            check(all(parallel[name] is not None for name in ('upgrade', 'training', 'research')), 'three independent queues run on Android')
+            tap(180, 2340)
+            tap(900, 2230)
+        wait_for(lambda s: s['research'] is None and s['researchLevels'][kind] == 1, 'technology completes ' + str(kind))
+    screenshot('academy-completed')
+    tap(540, 1879)
+    current_academy = wait_for(lambda s: s['buildings'][6]['level'] == 2 and s['training'] is None, 'academy upgrade and training finish alongside research')
+    screenshot('settlement-academy')
+    restart()
+    restored_academy = state()
+    check(restored_academy['researchLevels'] == [1, 1, 1, 1] and restored_academy['research'] is None, 'completed technologies reload without duplicate levels or ghost queue')
+    check(restored_academy['buildings'][6]['level'] == 2 and restored_academy['heroExperience'] == 20, 'academy and previous kingdom progress preserved')
     process_id = adb('shell', 'pidof', PACKAGE).split()[0]
     logs = adb('logcat', '-d', '--pid=' + process_id, '-v', 'brief')
     (OUTPUT / 'latest-logcat.txt').write_text(logs, encoding='utf-8')
     exceptions = [line for line in logs.splitlines() if 'FATAL EXCEPTION' in line or 'E/Unity' in line or 'Exception:' in line]
     check(not exceptions, 'no managed Unity exceptions or Android crashes')
-    (OUTPUT / 'last-state.json').write_text(json.dumps(restored, ensure_ascii=False, indent=2), encoding='utf-8')
+    (OUTPUT / 'last-state.json').write_text(json.dumps(restored_academy, ensure_ascii=False, indent=2), encoding='utf-8')
     result = dict(status='passed', tested_at=datetime.now(timezone.utc).isoformat(), target='Android 16 API 36 emulator',
                   avd='PlagueGamePrototype', serial=SERIAL, size=[1080, 2400], graphics='Host GPU',
                   phone_tested=False, checks=checks,

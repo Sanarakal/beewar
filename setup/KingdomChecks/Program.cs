@@ -114,4 +114,89 @@ Check(story.State.report.won && story.StoryStage == 2 && new KingdomSimulation(C
 story.AdvanceTo(storyHomeAt + .01);
 Check(story.StoryStage == 3 && new KingdomSimulation(Clone(story.State)).StoryStage == 3, "delivered victory and reload preserve discovery chapter");
 
+var scholar = Fresh();
+var academyGold = scholar.State.gold;
+Check(!scholar.StartResearch(ResearchKind.Nectar).success && scholar.State.research == null && scholar.State.gold == academyGold, "academy requires citadel 2 without charging");
+Check(!scholar.StartResearch((ResearchKind)(-1)).success && !scholar.StartResearch((ResearchKind)99).success, "invalid research commands rejected");
+scholar.State.buildings[0].level = 2;
+var researchPrice = scholar.ResearchCost(ResearchKind.Nectar);
+var researchFood = scholar.State.food;
+Check(scholar.StartResearch(ResearchKind.Nectar).success && Near(scholar.State.food, researchFood - researchPrice.food), "research charges exact cost on start");
+var chargedResearchGold = scholar.State.gold;
+Check(!scholar.StartResearch(ResearchKind.Wax).success && scholar.State.gold == chargedResearchGold, "only one research queue and no duplicate charge");
+Check(scholar.StartUpgrade(BuildingKind.Barracks).success && scholar.StartTraining(1, 10).success, "research construction and training run independently");
+var researchEnd = scholar.State.research.endsAt;
+var scholarReload = new KingdomSimulation(Clone(scholar.State));
+Check(scholarReload.State.research != null && scholarReload.State.IsValid(), "active research survives serialization with other queues");
+scholarReload.AdvanceTo(researchEnd - .01);
+Check(scholarReload.ResearchLevel(ResearchKind.Nectar) == 0 && Near(scholarReload.FoodPerSecond, 1.2), "research bonus not applied early");
+var preResearchPower = scholarReload.Power;
+scholarReload.AdvanceTo(researchEnd);
+Check(scholarReload.ResearchLevel(ResearchKind.Nectar) == 1 && scholarReload.State.research == null && Near(scholarReload.FoodPerSecond, 1.38), "research completes on boundary and affects production");
+Check(scholarReload.Power == preResearchPower + 100, "completed research contributes to power");
+var afterResearchFood = scholarReload.State.food;
+scholarReload.AdvanceTo(researchEnd + 10);
+Check(Near(scholarReload.State.food, afterResearchFood + 13.8), "researched production rate grants real resources");
+Check(!scholarReload.StartResearch(ResearchKind.Nectar).success && scholarReload.ResearchBlock(ResearchKind.Nectar).Contains("академия 2"), "research level limited by academy");
+var completedScholar = new KingdomSimulation(Clone(scholarReload.State));
+completedScholar.AdvanceTo(researchEnd + 10);
+Check(completedScholar.ResearchTotal == 1 && completedScholar.Power == scholarReload.Power, "research reload does not duplicate level or power");
+
+var boundary = Fresh(); boundary.State.buildings[0].level = 2;
+boundary.StartResearch(ResearchKind.Wax);
+var boundaryReload = new KingdomSimulation(Clone(boundary.State));
+var boundaryWood = boundary.State.wood;
+boundary.AdvanceTo(Epoch + 46);
+for (var i = 1; i <= 46; i++) boundaryReload.AdvanceTo(Epoch + i);
+Check(Near(boundary.State.wood, boundaryWood + .9 * 26 + 1.035 * 20), "offline income changes exactly at research completion");
+Check(Near(boundary.State.wood, boundaryReload.State.wood), "partitioned and offline research give identical production");
+boundaryReload.AdvanceTo(Epoch + 9 * 3600);
+Check(boundaryReload.State.research == null && boundaryReload.State.wood == boundaryReload.StorageCapacity && boundaryReload.ResearchTotal == 1, "long offline period completes research once and respects storage");
+
+var builders = Fresh(); builders.State.buildings[0].level = 2;
+builders.StartResearch(ResearchKind.Construction); builders.StartUpgrade(BuildingKind.Farm);
+builders.State.upgrade.endsAt = Epoch + 100;
+builders.AdvanceTo(builders.State.research.endsAt);
+Check(builders.State.upgrade.endsAt == Epoch + 100 && Near(builders.UpgradeDuration(BuildingKind.Warehouse), 11 / 1.1), "construction research accelerates new work and preserves running deadline");
+
+var tactics = Fresh(); tactics.State.buildings[0].level = 2; tactics.State.tier1 = 20;
+tactics.StartResearch(ResearchKind.Attack); tactics.State.research.endsAt = Epoch + 3;
+var tacticsPreview = tactics.Preview(1, 20);
+tactics.SendMarch(1, 20);
+Check(tactics.State.march.attackResearchLevel == 0, "march snapshots attack research on departure");
+var tacticsReload = new KingdomSimulation(Clone(tactics.State));
+tacticsReload.AdvanceTo(tacticsReload.State.march.homeAt);
+Check(tacticsReload.ResearchLevel(ResearchKind.Attack) == 1 && tacticsReload.State.report.won == tacticsPreview.won && tacticsReload.State.report.survivors == tacticsPreview.survivors1 + tacticsPreview.survivors2, "mid-march research and reload preserve advertised battle outcome");
+tacticsReload.State.tier1 = 20;
+tacticsReload.SendMarch(0, 20);
+Check(tacticsReload.State.march.attackResearchLevel == 1, "next march receives newly researched attack");
+var combatImproved = false;
+for (var soldiers = 2; soldiers <= 40; soldiers++)
+{
+    var normal = KingdomSimulation.ResolveBattle(soldiers, 0, 1, KingdomSimulation.Monsters[1]);
+    var educated = KingdomSimulation.ResolveBattle(soldiers, 0, 1, KingdomSimulation.Monsters[1], 5);
+    if (educated.survivors1 > normal.survivors1 || (educated.won && !normal.won)) combatImproved = true;
+}
+Check(combatImproved, "attack research changes actual survival or victory");
+var master = Fresh(); master.State.buildings[0].level = master.State.buildings[6].level = 5; master.State.researchLevels[0] = 5;
+Check(master.State.IsValid() && !master.StartResearch(ResearchKind.Nectar).success, "five research levels is the final cap");
+var poorScholar = Fresh(); poorScholar.State.buildings[0].level = 2; poorScholar.State.food = poorScholar.State.wood = poorScholar.State.gold = 0;
+Check(!poorScholar.StartResearch(ResearchKind.Attack).success && poorScholar.State.research == null && poorScholar.State.gold == 0, "unaffordable research leaves treasury and queue unchanged");
+
+var legacy = Clone(scholar.State);
+legacy.version = 1; legacy.research = null; legacy.researchLevels = null;
+Array.Resize(ref legacy.buildings, 6);
+var legacyTraining = legacy.training.count; var legacyWood = legacy.wood; var legacyDeadline = legacy.upgrade.endsAt;
+Check(legacy.MigrateAndValidate() && legacy.buildings.Length == 7 && legacy.version == KingdomState.CurrentVersion, "version 1 migrates to seven buildings and research");
+Check(legacy.training.count == legacyTraining && legacy.upgrade.endsAt == legacyDeadline && legacy.wood == legacyWood && Array.TrueForAll(legacy.researchLevels, level => level == 0), "migration preserves resources levels and queues");
+Check(legacy.MigrateAndValidate() && legacy.buildings.Length == 7, "migration is idempotent");
+var invalidResearch = Clone(Fresh().State); invalidResearch.researchLevels = new int[2];
+Check(!invalidResearch.IsValid(), "truncated research array rejected");
+invalidResearch = Clone(Fresh().State); invalidResearch.researchLevels[0] = -1;
+Check(!invalidResearch.IsValid(), "negative research level rejected");
+invalidResearch = Clone(Fresh().State); invalidResearch.version = 1; Array.Resize(ref invalidResearch.buildings, 5);
+Check(!invalidResearch.MigrateAndValidate(), "malformed legacy data cannot migrate");
+invalidResearch = Clone(Fresh().State); invalidResearch.version = 99;
+Check(!invalidResearch.MigrateAndValidate(), "unknown future save version rejected");
+
 Console.WriteLine($"KINGDOM_CHECKS_OK {checks} checks");

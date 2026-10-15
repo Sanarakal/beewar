@@ -11,9 +11,9 @@ namespace PlagueGame.Kingdom
         private readonly Dictionary<PrimitiveType, Mesh> primitives = new Dictionary<PrimitiveType, Mesh>();
         private readonly List<Mesh> meshes = new List<Mesh>();
         private readonly List<Transform> citizens = new List<Transform>(), wings = new List<Transform>();
-        private readonly Transform[] buildings = new Transform[6], monsters = new Transform[3];
-        private readonly Transform[,] growth = new Transform[6, 2];
-        private readonly Vector3[] sites = { new Vector3(0,0,4.3f), new Vector3(-5,0,-4), new Vector3(5.2f,0,-3.6f), new Vector3(-5.2f,0,1.1f), new Vector3(5.1f,0,1.5f), new Vector3(0,0,-4.7f) };
+        private readonly Transform[] buildings = new Transform[KingdomState.BuildingCount], monsters = new Transform[3];
+        private readonly Transform[,] growth = new Transform[KingdomState.BuildingCount, 2];
+        private readonly Vector3[] sites = { new Vector3(0,0,4.3f), new Vector3(-5,0,-4), new Vector3(5.2f,0,-3.6f), new Vector3(-5.2f,0,1.1f), new Vector3(5.1f,0,1.5f), new Vector3(0,0,-4.7f), new Vector3(5.6f,0,6.8f) };
         private readonly Vector3[] targets = { new Vector3(-7,0,4), new Vector3(6,0,1), new Vector3(7,0,10) };
         private readonly Vector3 home = new Vector3(-8,0,-7);
         private KingdomSimulation simulation;
@@ -61,7 +61,7 @@ namespace PlagueGame.Kingdom
             cameraView.transform.position=center+(currentTab==KingdomTab.Army?new Vector3(7,5,-14):new Vector3(17,25,-23)); cameraView.transform.LookAt(center);
             cameraView.orthographicSize=currentTab==KingdomTab.Settlement?Mathf.Max(zoom,12.6f/cameraView.aspect):zoom;
             cameraView.backgroundColor=Hex(currentTab==KingdomTab.Army?"#243F35":"#526B4D");
-            for (var i=0;i<6;i++) { var level=simulation.Level((BuildingKind)i); buildings[i].localScale=Vector3.one*(1+(level-1)*.025f); for(var j=0;j<2;j++) growth[i,j].gameObject.SetActive(level>=(j==0?3:5)); }
+            for (var i=0;i<buildings.Length;i++) { var level=simulation.Level((BuildingKind)i); buildings[i].localScale=Vector3.one*(1+(level-1)*.025f); for(var j=0;j<2;j++) growth[i,j].gameObject.SetActive(level>=(j==0?3:5)); }
             selection.localPosition=sites[(int)selected]+Vector3.up*.18f; selection.localScale=Vector3.one*(selected==BuildingKind.Castle?1.25f:.85f); mapSelection.localPosition=targets[selectedMonster]+Vector3.up*.1f;
             scaffold.gameObject.SetActive(simulation.State.upgrade!=null); if(simulation.State.upgrade!=null) scaffold.localPosition=sites[(int)simulation.State.upgrade.building];
             for(var i=0;i<citizens.Count;i++) { var t=Time.time*.25f+i*1.6f; citizens[i].localPosition=new Vector3(Mathf.Sin(t)*(2.2f+i%2),.35f+Mathf.Sin(Time.time*3+i)*.1f,Mathf.Cos(t)*2-.5f); citizens[i].localRotation=Quaternion.Euler(0,-t*Mathf.Rad2Deg+180,0); }

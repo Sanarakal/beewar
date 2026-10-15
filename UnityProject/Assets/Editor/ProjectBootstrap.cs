@@ -201,8 +201,8 @@ namespace PlagueGame.EditorTools
         public static void ConfigureKingdom()
         {
             Configure();
-            PlayerSettings.bundleVersion = "0.3.0";
-            PlayerSettings.Android.bundleVersionCode = 4;
+            PlayerSettings.bundleVersion = "0.4.0";
+            PlayerSettings.Android.bundleVersionCode = 5;
             if (!File.Exists(KingdomScene))
             {
                 var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
